@@ -1,0 +1,302 @@
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Policy
+metadata:
+  name: vid2vec-app-workload-policy
+spec:
+  forProvider:
+    description: "IAM policy granting video storage and queue access for vid2vec workers"
+    policy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:ListBucket"
+            ],
+            "Resource": [
+              "arn:aws:s3:::<S3_MEDIA_BUCKET>",
+              "arn:aws:s3:::<S3_MEDIA_BUCKET>/*"
+            ]
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Role
+metadata:
+  name: vid2vec-worker-irsa-role
+spec:
+  forProvider:
+    assumeRolePolicy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "Federated": "arn:aws:iam::<AWS_ACCOUNT_ID>:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/<EKS_OIDC_ID>"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+              "StringEquals": {
+                "oidc.eks.us-east-1.amazonaws.com/id/<EKS_OIDC_ID>:sub": "system:serviceaccount:default:vid2vec-worker-sa"
+              }
+            }
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  name: vid2vec-worker-role-attachment
+spec:
+  forProvider:
+    policyArnSelector:
+      matchControllerRef: true
+    roleSelector:
+      matchControllerRef: true
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Machine Role: Admin (Full Infrastructure & Security Management)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Role
+metadata:
+  name: vid2vec-admin-role
+spec:
+  forProvider:
+    description: "Full administrator role for automation pipelines and break-glass workloads"
+    assumeRolePolicy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::<AWS_ACCOUNT_ID>:root"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  name: vid2vec-admin-policy-attachment
+spec:
+  forProvider:
+    policyArn: "arn:aws:iam::aws:policy/AdministratorAccess"
+    roleSelector:
+      matchLabels:
+        role: admin
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Machine Role: Worker (Read/Write Services, No IAM/Billing Mutation)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Policy
+metadata:
+  name: vid2vec-worker-policy
+spec:
+  forProvider:
+    description: "Worker policy for day-to-day service access (EKS, RDS, S3, logs)"
+    policy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "eks:DescribeCluster",
+              "eks:ListClusters",
+              "rds:Describe*",
+              "s3:*",
+              "logs:Get*",
+              "logs:Describe*",
+              "logs:FilterLogEvents",
+              "elasticache:Describe*"
+            ],
+            "Resource": "*"
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Role
+metadata:
+  name: vid2vec-worker-role
+spec:
+  forProvider:
+    description: "Worker role for service read/write operations"
+    assumeRolePolicy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::<AWS_ACCOUNT_ID>:root"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  name: vid2vec-worker-policy-attachment
+spec:
+  forProvider:
+    policyArnSelector:
+      matchLabels:
+        policy: worker
+    roleSelector:
+      matchLabels:
+        role: worker
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Machine Role: Read-Only (View-Only, Zero Mutating Permissions)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: Role
+metadata:
+  name: vid2vec-readonly-role
+spec:
+  forProvider:
+    description: "Read-only role for monitoring, metrics, and inspection"
+    assumeRolePolicy: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::<AWS_ACCOUNT_ID>:root"
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      }
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  name: vid2vec-readonly-policy-attachment
+spec:
+  forProvider:
+    policyArn: "arn:aws:iam::aws:policy/ReadOnlyAccess"
+    roleSelector:
+      matchLabels:
+        role: readonly
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Human Account: John (Admin-level access)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: User
+metadata:
+  name: john
+spec:
+  forProvider:
+    path: "/humans/"
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: UserPolicyAttachment
+metadata:
+  name: john-admin-attachment
+spec:
+  forProvider:
+    policyArn: "arn:aws:iam::aws:policy/AdministratorAccess"
+    userNameSelector:
+      matchLabels:
+        user: john
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Human Account: James (Worker-level access: services read/write, no IAM)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: User
+metadata:
+  name: james
+spec:
+  forProvider:
+    path: "/humans/"
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: UserPolicyAttachment
+metadata:
+  name: james-worker-attachment
+spec:
+  forProvider:
+    policyArnSelector:
+      matchLabels:
+        policy: worker
+    userNameSelector:
+      matchLabels:
+        user: james
+  providerConfigRef:
+    name: default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Human Account: Dave (Read-only: view and inspect, zero changes)
+# ─────────────────────────────────────────────────────────────────────────────
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: User
+metadata:
+  name: dave
+spec:
+  forProvider:
+    path: "/humans/"
+  providerConfigRef:
+    name: default
+---
+apiVersion: iam.aws.upbound.io/v1beta1
+kind: UserPolicyAttachment
+metadata:
+  name: dave-readonly-attachment
+spec:
+  forProvider:
+    policyArn: "arn:aws:iam::aws:policy/ReadOnlyAccess"
+    userNameSelector:
+      matchLabels:
+        user: dave
+  providerConfigRef:
+    name: default

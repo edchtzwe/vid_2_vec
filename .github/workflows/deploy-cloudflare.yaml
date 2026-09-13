@@ -1,0 +1,113 @@
+name: Manual Edge Routing Deployment (Cloudflare)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform Action"
+        required: true
+        type: choice
+        options:
+          - apply
+          - plan
+          - destroy
+        default: "plan"
+      target_address:
+        description: "Target Hostname (AWS ALB) or IPv4 (GCP Ingress) - leave blank to auto-discover AWS ALB"
+        required: false
+        type: string
+        default: ""
+      record_type:
+        description: "DNS Record Type (CNAME for AWS hostname, A for GCP IP)"
+        required: true
+        type: choice
+        options:
+          - CNAME
+          - A
+        default: "CNAME"
+      proxied:
+        description: "Enable Cloudflare Proxy (Orange Cloud)"
+        required: true
+        type: boolean
+        default: true
+      ssl_mode:
+        description: "Cloudflare SSL Mode"
+        required: true
+        type: choice
+        options:
+          - strict
+          - full
+        default: "strict"
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy-cloudflare:
+    name: Terraform Cloudflare Edge Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate Configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+        run: |
+          missing=""
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN(secret)"
+          [ -z "$DOMAIN_NAME" ] && missing="$missing DOMAIN_NAME(variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required configuration:$missing"
+            exit 1
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Configure AWS Credentials for ALB Discovery
+        if: github.event.inputs.target_address == '' && secrets.AWS_ACCESS_KEY_ID != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Resolve Target Address
+        id: resolver
+        env:
+          INPUT_TARGET: ${{ github.event.inputs.target_address }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+        run: |
+          TARGET="$INPUT_TARGET"
+          if [ -z "$TARGET" ]; then
+            TARGET=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, 'vid2vec')].DNSName | [0]" --output text 2>/dev/null || echo "")
+          fi
+          if [ -z "$TARGET" ] || [ "$TARGET" = "None" ]; then
+            echo "::error::Unable to resolve target address. Provide target_address manually in workflow inputs."
+            exit 1
+          fi
+          echo "target_address=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Init & Apply
+        working-directory: infra/terraform/cloudflare
+        env:
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+          TF_VAR_target_address: ${{ steps.resolver.outputs.target_address }}
+          TF_VAR_record_type: ${{ github.event.inputs.record_type }}
+          TF_VAR_proxied: ${{ github.event.inputs.proxied }}
+          TF_VAR_ssl_mode: ${{ github.event.inputs.ssl_mode }}
+        run: |
+          terraform init
+          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
+            terraform apply -auto-approve
+          elif [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform destroy -auto-approve
+          else
+            terraform plan
+          fi

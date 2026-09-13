@@ -1,0 +1,20 @@
+aws_region  = "us-east-1"
+vpc_cidr    = "10.0.0.0/16"
+cluster_name = "vid2vec-eks-cluster"
+
+availability_zones  = ["us-east-1a", "us-east-1b"]
+node_instance_types = ["t3.medium"]
+
+min_node_count     = 2
+max_node_count     = 5
+desired_node_count = 2
+
+ecr_repository_name    = "vid2vec"
+crossplane_namespace   = "crossplane-system"
+crossplane_chart_version = "1.16.0"
+
+tags = {
+  Environment = "production"
+  Project     = "vid_2_vec"
+  ManagedBy   = "Terraform"
+}

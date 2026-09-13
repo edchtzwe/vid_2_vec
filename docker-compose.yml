@@ -1,0 +1,62 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discovery-engine-ingestion
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vid_2_vec?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
+      - APP_PORT=8080
+      - APP_HOST=0.0.0.0
+      - SOURCE_FILE_DIR=/app/data/source
+      - ANALYZER_OUTPUT_DIR=/app/data/manifests
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-vid_2_vec}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    container_name: asynqmon
+    restart: unless-stopped
+    command: ["--redis-addr=redis:6379"]
+    ports:
+      - "8085:8080"
+    depends_on:
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:

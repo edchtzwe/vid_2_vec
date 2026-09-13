@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vid2vec-api
+  labels:
+    app: vid2vec-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vid2vec-api
+  template:
+    metadata:
+      labels:
+        app: vid2vec-api
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: ["vid2vec-api"]
+              topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
+      containers:
+        - name: api
+          image: vid2vec:latest
+          command: ["./bin/api"]
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: APP_PORT
+              value: "8080"
+            - name: APP_HOST
+              value: "0.0.0.0"
+            - name: REDIS_URL
+              value: "redis://redis-service:6379/0"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+            - name: DB_SCHEMA
+              value: "discovery_showcase"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health-check
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /health-check
+              port: 8080
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health-check
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vid2vec-api-service
+  labels:
+    app: vid2vec-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: vid2vec-api
