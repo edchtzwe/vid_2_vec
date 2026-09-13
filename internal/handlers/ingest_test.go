@@ -8,9 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
-
-	"ingestion/internal/tasks"
 )
 
 func TestIngestHandler_HappyPath(t *testing.T) {

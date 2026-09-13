@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"ingestion/internal/config"
-	"ingestion/internal/repository"
 )
 
 type Processor struct {
