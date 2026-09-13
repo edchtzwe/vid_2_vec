@@ -52,6 +52,10 @@
 | `.github/workflows/deploy.yaml` | Create | Unified manual `workflow_dispatch` pipeline executing combined AWS/GCP deployments. |
 | `.github/workflows/deploy-aws.yaml` | Create | Dedicated manual `workflow_dispatch` pipeline specialized for AWS infrastructure and workload deployments. |
 | `.github/workflows/deploy-gcp.yaml` | Create | Dedicated manual `workflow_dispatch` pipeline specialized for GCP infrastructure and workload deployments. |
+| `infra/terraform/aws-ecs/main.tf` | Create | Isolated ECS Fargate module: ECS cluster, CloudWatch log group, IAM execution/task roles, ALB target group, Service Discovery, Redis, API, and 4 worker task definitions + services. |
+| `infra/terraform/aws-ecs/variables.tf` | Create | Inputs for ECS Fargate deployment (VPC, subnets, ECR repository, image tag, domain, task sizes). |
+| `infra/terraform/aws-ecs/outputs.tf` | Create | Outputs for ECS cluster ARN, ALB DNS name, service names, and migration task definition ARN. |
+| `.github/workflows/deploy-aws-ecs.yaml` | Create | Isolated manual `workflow_dispatch` pipeline deploying to ECS Fargate without affecting EKS. |
 
 ---
 
@@ -194,3 +198,27 @@ Once Terraform completes Phase 1:
 2. Log into GoDaddy -> Domain Settings -> Manage DNS -> Nameservers -> **Change to Custom Nameservers**.
 3. Paste the 4 cloud nameserver hostnames and save.
 4. GoDaddy delegates all DNS resolution to the cloud provider. TLS certificate validation and API traffic routing proceed automatically.
+
+---
+
+## 8. Case Study: AWS ECS Fargate vs. Kubernetes (Portability vs. Lock-in)
+
+### Overview
+This repository includes an optional, isolated deployment path for **AWS ECS Fargate** (`infra/terraform/aws-ecs/` and `.github/workflows/deploy-aws-ecs.yaml`). It operates alongside the primary Kubernetes/Crossplane architecture as an architectural case study comparing cloud-agnostic container orchestration with cloud-native proprietary serverless container runtimes.
+
+### Comparative Analysis
+
+| Feature | Primary Track (EKS + Crossplane) | Educational Case Study (AWS ECS Fargate) |
+| :--- | :--- | :--- |
+| **Vendor Portability** | **High**: Manifests (`Deployment`, `Ingress`, `HPA`) run identically on AWS, GCP, Azure, or on-prem. | **Zero**: Tied to AWS-specific APIs (`aws_ecs_task_definition`, `aws_ecs_service`). |
+| **Control Plane Cost** | $73/month base cluster fee. | $0 base cluster fee. |
+| **Operational Overhead** | Cluster upgrades, CNI plugins, IRSA configuration, Kubelet debugging, Helm controllers. | Serverless compute. AWS patches the underlying hypervisor. |
+| **Container Registry** | Shared private AWS ECR (`aws_ecr_repository.app`). | Reuses the identical private AWS ECR repository (`aws_ecr_repository.app`). |
+| **Networking** | AWS VPC CNI with Pod IPs, Ingress managed by AWS Load Balancer Controller. | Native `awsvpc` network mode (ENI per task) with direct ALB IP target group binding. |
+| **Service Discovery** | Kubernetes CoreDNS (`redis-service:6379`). | AWS Cloud Map Private DNS namespace (`redis.vid2vec.local:6379`). |
+| **Autoscaling** | K8s Horizontal Pod Autoscaler (HPA) + Cluster Autoscaler. | AWS Application Auto Scaling with target tracking (CPU utilization). |
+| **Database Migrations** | Kubernetes Job (`Job/vid2vec-db-migration`). | One-shot AWS ECS Task (`aws ecs run-task`). |
+
+### Isolation Guarantees
+- The ECS stack does not modify, depend on, or mutate any Kubernetes manifest, Crossplane controller, or EKS node group.
+- The pipeline `.github/workflows/deploy-aws-ecs.yaml` is fully decoupled from `.github/workflows/deploy-aws.yaml` and executes purely on manual workflow dispatch.
