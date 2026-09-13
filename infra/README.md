@@ -62,6 +62,7 @@
 | `infra/terraform/cloudflare/variables.tf` | Create | Inputs for Cloudflare API token, domain name, explicit `record_type` (`CNAME` \| `A`), target address, and SSL mode. |
 | `infra/terraform/cloudflare/outputs.tf` | Create | Outputs for Cloudflare zone ID, API FQDN, assigned nameservers, and SSL mode. |
 | `.github/workflows/deploy-cloudflare.yaml` | Create | Isolated manual `workflow_dispatch` pipeline managing Cloudflare edge DNS and proxying without polluting cloud state. |
+| `infra/AUDIT_NATIONAL_SCALE.md` | Create | National scale infrastructure audit report: telemetry matrix, scaling loops, and ANZ regional readiness. |
 
 ---
 

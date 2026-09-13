@@ -257,6 +257,21 @@ jobs:
               -e "s|<GCP_NETWORK_NAME>|${NET}|g" {} +
           fi
 
+          DOMAIN="${DOMAIN_NAME:-vid2vec.example.com}"
+          if [ "$PROVIDER" = "aws" ]; then
+            ACM_ARN="${ACM_CERTIFICATE_ARN}"
+            sed -i \
+              -e "s|<DOMAIN_NAME>|api.${DOMAIN}|g" \
+              -e "s|<ACM_CERTIFICATE_ARN>|${ACM_ARN}|g" \
+              infra/k8s/app/ingress.yaml
+          else
+            sed -i \
+              -e "s|<DOMAIN_NAME>|api.${DOMAIN}|g" \
+              -e 's|kubernetes.io/ingress.class: "alb"|kubernetes.io/ingress.class: "gce"|g' \
+              -e '/alb\.ingress\.kubernetes\.io/d' \
+              infra/k8s/app/ingress.yaml
+          fi
+
       - name: Phase 3.3 - Apply Crossplane Providers & Managed Resources
         run: |
           PROVIDER="${{ github.event.inputs.cloud_provider }}"

@@ -168,7 +168,8 @@ jobs:
           DOMAIN="${DOMAIN_NAME:-vid2vec.example.com}"
           sed -i \
             -e "s|<DOMAIN_NAME>|api.${DOMAIN}|g" \
-            -e "s|<ACM_CERTIFICATE_ARN>||g" \
+            -e 's|kubernetes.io/ingress.class: "alb"|kubernetes.io/ingress.class: "gce"|g' \
+            -e '/alb\.ingress\.kubernetes\.io/d' \
             infra/k8s/app/ingress.yaml
 
       - name: Phase 3.3 - Apply Crossplane Providers & Managed Resources
