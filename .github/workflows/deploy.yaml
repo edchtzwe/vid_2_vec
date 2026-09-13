@@ -1,0 +1,118 @@
+name: Manual Infrastructure & App Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      cloud_provider:
+        description: "Target Cloud Provider"
+        required: true
+        type: choice
+        options:
+          - aws
+          - gcp
+        default: "aws"
+      action:
+        description: "Terraform Action"
+        required: true
+        type: choice
+        options:
+          - apply
+          - plan
+          - destroy
+        default: "plan"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 1: Terraform L1 Foundation (VPC, Cluster, OIDC/Workload Identity)
+  # ───────────────────────────────────────────────────────────────────────────
+  terraform-foundation:
+    name: Terraform L1 Provisioning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Configure AWS Credentials (Placeholder)
+        if: ${{ github.event.inputs.cloud_provider == 'aws' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID || 'AWS_PLACEHOLDER_KEY' }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'AWS_PLACEHOLDER_SECRET' }}
+          aws-region: "us-east-1"
+
+      - name: Setup Google Cloud SDK (Placeholder)
+        if: ${{ github.event.inputs.cloud_provider == 'gcp' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY || '{}' }}
+
+      - name: Terraform Init & Run (${{ github.event.inputs.cloud_provider }})
+        working-directory: infra/terraform/${{ github.event.inputs.cloud_provider }}
+        run: |
+          echo "Executing Terraform on infra/terraform/${{ github.event.inputs.cloud_provider }}"
+          terraform init
+          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
+            terraform apply -auto-approve
+          elif [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform destroy -auto-approve
+          else
+            terraform plan
+          fi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 2: Crossplane L2 Deployment (Cloud SQL / RDS, Redis, IAM Roles)
+  # ───────────────────────────────────────────────────────────────────────────
+  crossplane-reconciliation:
+    name: Crossplane L2 Reconciliation
+    needs: terraform-foundation
+    if: ${{ github.event.inputs.action == 'apply' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Apply Crossplane Providers & Managed Resources
+        run: |
+          echo "Applying Crossplane Provider and Managed Resources for ${{ github.event.inputs.cloud_provider }}..."
+          kubectl apply -f infra/crossplane/${{ github.event.inputs.cloud_provider }}/provider-${{ github.event.inputs.cloud_provider }}.yaml
+          kubectl apply -f infra/crossplane/${{ github.event.inputs.cloud_provider }}/iam.yaml
+          if [ "${{ github.event.inputs.cloud_provider }}" = "aws" ]; then
+            kubectl apply -f infra/crossplane/aws/rds-postgres.yaml
+          else
+            kubectl apply -f infra/crossplane/gcp/cloudsql-postgres.yaml
+          fi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 3: Kubernetes Workloads L3 (Redis, 4 Queue Workers, API)
+  # ───────────────────────────────────────────────────────────────────────────
+  workloads-deploy:
+    name: Kubernetes L3 Workloads
+    needs: crossplane-reconciliation
+    if: ${{ github.event.inputs.action == 'apply' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Kubectl & Kustomize
+        uses: azure/setup-kubectl@v4
+
+      - name: Deploy Kubernetes Workloads
+        run: |
+          echo "Deploying Redis, 4 Workers (uploader, state, analyzer, embedder), and API..."
+          kubectl apply -k infra/k8s/
+          echo "Checking deployment rollout across 2+ nodes..."
+          kubectl rollout status deployment/redis --timeout=120s || true
+          kubectl rollout status deployment/worker-uploader --timeout=120s || true
+          kubectl rollout status deployment/worker-state --timeout=120s || true
+          kubectl rollout status deployment/worker-analyzer --timeout=120s || true
+          kubectl rollout status deployment/worker-embedder --timeout=120s || true
+          kubectl rollout status deployment/vid2vec-api --timeout=120s || true

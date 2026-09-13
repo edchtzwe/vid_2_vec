@@ -1,0 +1,60 @@
+apiVersion: sql.gcp.upbound.io/v1beta1
+kind: DatabaseInstance
+metadata:
+  name: vid2vec-cloudsql-postgres
+spec:
+  forProvider:
+    databaseVersion: POSTGRES_16
+    region: us-central1
+    settings:
+      - tier: db-f1-micro
+        diskSize: 20
+        diskType: PD_SSD
+        ipConfiguration:
+          - ipv4Enabled: false
+            privateNetwork: projects/vid2vec-prod-project-id/global/networks/vid2vec-gcp-vpc
+        databaseFlags:
+          - name: "cloudsql.enable_pgvector"
+            value: "on"
+          - name: "maintenance_work_mem"
+            value: "262144"
+          - name: "work_mem"
+            value: "65536"
+          - name: "max_parallel_maintenance_workers"
+            value: "2"
+        backupConfiguration:
+          - enabled: true
+            startTime: "04:00"
+  writeConnectionSecretToRef:
+    name: postgres-conn
+    namespace: default
+  providerConfigRef:
+    name: default
+---
+apiVersion: sql.gcp.upbound.io/v1beta1
+kind: Database
+metadata:
+  name: vid2vec-database
+spec:
+  forProvider:
+    name: ion_discovery_proto
+    instanceSelector:
+      matchControllerRef: true
+  providerConfigRef:
+    name: default
+---
+apiVersion: sql.gcp.upbound.io/v1beta1
+kind: User
+metadata:
+  name: vid2vec-db-user
+spec:
+  forProvider:
+    name: iamatomic
+    instanceSelector:
+      matchControllerRef: true
+    passwordSecretRef:
+      name: cloudsql-postgres-master-password
+      namespace: default
+      key: password
+  providerConfigRef:
+    name: default

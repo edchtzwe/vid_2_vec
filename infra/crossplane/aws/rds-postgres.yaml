@@ -1,0 +1,66 @@
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: SubnetGroup
+metadata:
+  name: vid2vec-db-subnet-group
+spec:
+  forProvider:
+    description: "Database Subnet Group for vid2vec RDS"
+    subnetIds:
+      - subnet-placeholder-private-1
+      - subnet-placeholder-private-2
+    region: us-east-1
+  providerConfigRef:
+    name: default
+---
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: ParameterGroup
+metadata:
+  name: vid2vec-pgvector-params
+spec:
+  forProvider:
+    description: "Postgres 16 Parameter Group optimized for pgvector HNSW indexing and query performance"
+    family: "postgres16"
+    region: us-east-1
+    parameter:
+      - name: "maintenance_work_mem"
+        value: "262144"
+      - name: "work_mem"
+        value: "65536"
+      - name: "max_parallel_workers"
+        value: "4"
+      - name: "max_parallel_maintenance_workers"
+        value: "2"
+      - name: "shared_preload_libraries"
+        value: "pg_stat_statements"
+  providerConfigRef:
+    name: default
+---
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  name: vid2vec-postgres-db
+spec:
+  forProvider:
+    allocatedStorage: 20
+    autoMinorVersionUpgrade: true
+    dbName: ion_discovery_proto
+    dbSubnetGroupNameRef:
+      name: vid2vec-db-subnet-group
+    parameterGroupNameRef:
+      name: vid2vec-pgvector-params
+    engine: postgres
+    engineVersion: "16.1"
+    instanceClass: db.t4g.micro
+    publiclyAccessible: false
+    region: us-east-1
+    skipFinalSnapshot: true
+    username: iamatomic
+    passwordSecretRef:
+      name: rds-postgres-master-password
+      namespace: default
+      key: password
+  writeConnectionSecretToRef:
+    name: postgres-conn
+    namespace: default
+  providerConfigRef:
+    name: default

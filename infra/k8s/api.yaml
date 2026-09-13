@@ -1,0 +1,94 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vid2vec-db-migration
+spec:
+  template:
+    spec:
+      containers:
+        - name: db-migrate
+          image: vid2vec:latest
+          command: ["./bin/migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-conn
+                  key: endpoint
+                  optional: true
+            - name: DB_SCHEMA
+              value: "discovery_showcase"
+      restartPolicy: OnFailure
+  backoffLimit: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vid2vec-api
+  labels:
+    app: vid2vec-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vid2vec-api
+  template:
+    metadata:
+      labels:
+        app: vid2vec-api
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["vid2vec-api"]
+                topologyKey: "kubernetes.io/hostname"
+      containers:
+        - name: api
+          image: vid2vec:latest
+          command: ["./bin/api"]
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: APP_PORT
+              value: "8080"
+            - name: APP_HOST
+              value: "0.0.0.0"
+            - name: REDIS_URL
+              value: "redis://redis-service:6379/0"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-conn
+                  key: endpoint
+                  optional: true
+            - name: DB_SCHEMA
+              value: "discovery_showcase"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vid2vec-api-service
+  labels:
+    app: vid2vec-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: vid2vec-api
