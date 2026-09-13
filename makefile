@@ -108,6 +108,15 @@ shell:              ## Open a bash shell in the container
 logs:               ## Tail container logs
 	docker logs -f $(CONTAINER)
 
+up:                 ## Bring up local stack via docker compose
+	docker compose up -d
+
+down:               ## Tear down local stack via docker compose
+	docker compose down
+
+compose-logs:       ## Tail all docker compose logs
+	docker compose logs -f
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 help:               ## Show this help
@@ -118,6 +127,6 @@ help:               ## Show this help
         start start-d restart kill monit pm2-logs status \
         d-build d-tidy d-fmt d-vet d-test d-lint d-migrate \
         d-start d-start-d d-restart d-kill d-monit d-pm2-logs d-status \
-        shell logs help
+        shell logs up down compose-logs help
 
 .DEFAULT_GOAL := help

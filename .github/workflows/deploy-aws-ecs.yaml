@@ -1,0 +1,166 @@
+name: Manual Infrastructure & App Deployment (AWS ECS Fargate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform Action"
+        required: true
+        type: choice
+        options:
+          - apply
+          - plan
+          - destroy
+        default: "plan"
+
+concurrency:
+  group: deploy-aws-ecs
+  cancel-in-progress: false
+
+jobs:
+  validate-config:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Required Configuration
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          missing=""
+          [ -z "$AWS_ACCESS_KEY_ID" ] && missing="$missing AWS_ACCESS_KEY_ID(secret)"
+          [ -z "$AWS_SECRET_ACCESS_KEY" ] && missing="$missing AWS_SECRET_ACCESS_KEY(secret)"
+          [ -z "$AWS_REGION" ] && missing="$missing AWS_REGION(variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required repository configuration:$missing"
+            exit 1
+          fi
+
+  build-push-ecr:
+    name: Build & Push Image (ECR)
+    needs: validate-config
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.image.outputs.image_tag }}
+      ecr_registry: ${{ steps.image.outputs.ecr_registry }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Build & Push to Existing ECR
+        id: image
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::12}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          IMAGE_REF="${ECR_REGISTRY}/vid2vec:${IMAGE_TAG}"
+          docker build -f Dockerfile.prod -t "$IMAGE_REF" .
+          docker push "$IMAGE_REF"
+          echo "image_tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "ecr_registry=${ECR_REGISTRY}" >> "$GITHUB_OUTPUT"
+
+  deploy-ecs:
+    name: Terraform ECS Provisioning
+    needs: [validate-config, build-push-ecr]
+    if: always() && needs.validate-config.result == 'success' && (needs.build-push-ecr.result == 'success' || needs.build-push-ecr.result == 'skipped')
+    runs-on: ubuntu-latest
+    outputs:
+      cluster_name: ${{ steps.outputs.outputs.cluster_name }}
+      migration_task_def: ${{ steps.outputs.outputs.migration_task_def }}
+      alb_dns_name: ${{ steps.outputs.outputs.alb_dns_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform Init & Run
+        working-directory: infra/terraform/aws-ecs
+        env:
+          IMAGE_TAG: ${{ needs.build-push-ecr.outputs.image_tag || 'latest' }}
+        run: |
+          terraform init
+          VAR_ARGS="-var=image_tag=${IMAGE_TAG}"
+          if [ -n "${{ vars.AWS_REGION }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=aws_region=${{ vars.AWS_REGION }}"
+          fi
+          if [ -n "${{ vars.DOMAIN_NAME }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=domain_name=${{ vars.DOMAIN_NAME }}"
+          fi
+          if [ -n "${{ vars.S3_MEDIA_BUCKET }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=s3_media_bucket=${{ vars.S3_MEDIA_BUCKET }}"
+          fi
+          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
+            terraform apply -auto-approve $VAR_ARGS
+          elif [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform destroy -auto-approve $VAR_ARGS
+          else
+            terraform plan $VAR_ARGS
+          fi
+
+      - name: Capture Terraform Outputs
+        id: outputs
+        if: github.event.inputs.action == 'apply'
+        working-directory: infra/terraform/aws-ecs
+        run: |
+          echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "migration_task_def=$(terraform output -raw migration_task_definition_arn)" >> "$GITHUB_OUTPUT"
+          echo "alb_dns_name=$(terraform output -raw alb_dns_name)" >> "$GITHUB_OUTPUT"
+
+  post-deploy-migration:
+    name: Run Database Migration Task
+    needs: [deploy-ecs]
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Execute Migration Task
+        env:
+          CLUSTER_NAME: ${{ needs.deploy-ecs.outputs.cluster_name }}
+          TASK_DEF: ${{ needs.deploy-ecs.outputs.migration_task_def }}
+        run: |
+          TASK_FAMILY="${TASK_DEF##*/}"
+          TASK_FAMILY="${TASK_FAMILY%:*}"
+          VPC_ID=$(aws ecs describe-clusters --clusters "$CLUSTER_NAME" --include CONFIGURATION --query "clusters[0].clusterArn" --output text)
+          
+          DISCOVERED_SUBNET=$(aws ec2 describe-subnets --filters "Name=tag:kubernetes.io/role/internal-elb,Values=1" --query "Subnets[0].SubnetId" --output text)
+          DISCOVERED_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=${CLUSTER_NAME}-tasks-sg" --query "SecurityGroups[0].GroupId" --output text)
+          
+          if [ -n "$DISCOVERED_SUBNET" ] && [ -n "$DISCOVERED_SG" ] && [ "$DISCOVERED_SUBNET" != "None" ]; then
+            RUN_TASK_ARN=$(aws ecs run-task \
+              --cluster "$CLUSTER_NAME" \
+              --task-definition "$TASK_DEF" \
+              --launch-type FARGATE \
+              --network-configuration "awsvpcConfiguration={subnets=[$DISCOVERED_SUBNET],securityGroups=[$DISCOVERED_SG],assignPublicIp=DISABLED}" \
+              --query "tasks[0].taskArn" --output text)
+            
+            if [ -n "$RUN_TASK_ARN" ] && [ "$RUN_TASK_ARN" != "None" ]; then
+              aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$RUN_TASK_ARN"
+            fi
+          fi
