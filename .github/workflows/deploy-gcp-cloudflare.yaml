@@ -1,9 +1,4 @@
-name: Manual Infrastructure & App Deployment (GCP)
-
-# Manual only. Required repository configuration:
-#   Variables: GCP_REGION, GCP_PROJECT_ID
-#   Secrets:   GCP_SA_KEY
-# The cluster name is read from Terraform outputs.
+name: Manual Deployment (GCP GKE - Cloudflare)
 
 on:
   workflow_dispatch:
@@ -19,13 +14,10 @@ on:
         default: "plan"
 
 concurrency:
-  group: deploy-gcp
+  group: deploy-gcp-cloudflare
   cancel-in-progress: false
 
 jobs:
-  # ───────────────────────────────────────────────────────────────────────────
-  # Phase 1: Terraform L1 Foundation (VPC, Cluster, OIDC, Container Registry)
-  # ───────────────────────────────────────────────────────────────────────────
   terraform-foundation:
     name: Phase 1 - Terraform L1 Provisioning (GCP)
     runs-on: ubuntu-latest
@@ -41,10 +33,14 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
         run: |
           missing=""
           [ -z "$GCP_SA_KEY" ] && missing="$missing GCP_SA_KEY(secret)"
           [ -z "$GCP_PROJECT_ID" ] && missing="$missing GCP_PROJECT_ID(variable)"
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && missing="$missing CLOUDFLARE_API_TOKEN(secret)"
+          [ -z "$DOMAIN_NAME" ] && missing="$missing DOMAIN_NAME(variable)"
           if [ -n "$missing" ]; then
             echo "::error::Missing required repository configuration:$missing"
             exit 1
@@ -64,7 +60,7 @@ jobs:
         working-directory: infra/terraform/gcp
         run: |
           terraform init
-          VAR_ARGS="-var=project_id=${{ vars.GCP_PROJECT_ID }}"
+          VAR_ARGS="-var=project_id=${{ vars.GCP_PROJECT_ID }} -var=enable_cloud_dns=false"
           if [ -n "${{ vars.GCP_REGION }}" ]; then
             VAR_ARGS="$VAR_ARGS -var=region=${{ vars.GCP_REGION }}"
           fi
@@ -88,9 +84,6 @@ jobs:
           echo "registry_url=$(terraform output -raw artifact_registry_repository)" >> "$GITHUB_OUTPUT"
           echo "network_name=$(terraform output -raw network_name)" >> "$GITHUB_OUTPUT"
 
-  # ───────────────────────────────────────────────────────────────────────────
-  # Phase 2: Build & Push Container Image (prod image only)
-  # ───────────────────────────────────────────────────────────────────────────
   build-push:
     name: Phase 2 - Build & Push Image (GCP)
     needs: terraform-foundation
@@ -123,17 +116,13 @@ jobs:
           docker push "$IMAGE_REF"
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
-  # ───────────────────────────────────────────────────────────────────────────
-  # Phase 3: Cluster Deployment
-  #   kubeconfig -> Crossplane (DB) -> wait DB -> platform (Redis, migration)
-  #   -> wait migration -> app (workers, API) -> rollout
-  # Each stage waits for the previous dependency to be alive before proceeding.
-  # ───────────────────────────────────────────────────────────────────────────
   cluster-deploy:
     name: Phase 3 - Cluster Deployment (GCP)
     needs: [terraform-foundation, build-push]
     if: github.event.inputs.action == 'apply'
     runs-on: ubuntu-latest
+    outputs:
+      ingress_ip: ${{ steps.capture-ip.outputs.ingress_ip }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -225,3 +214,39 @@ jobs:
           kubectl rollout status deployment/worker-analyzer --timeout=300s
           kubectl rollout status deployment/worker-embedder --timeout=300s
           kubectl rollout status deployment/vid2vec-api --timeout=300s
+
+      - name: Phase 3.11 - Capture Ingress Load Balancer IP
+        id: capture-ip
+        run: |
+          until kubectl get ingress vid2vec-api-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null | grep -q .; do
+            sleep 5
+          done
+          IP_ADDR=$(kubectl get ingress vid2vec-api-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "ingress_ip=${IP_ADDR}" >> "$GITHUB_OUTPUT"
+
+  cloudflare-edge:
+    name: Phase 4 - Cloudflare Edge Routing
+    needs: [cluster-deploy]
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform Init & Apply Cloudflare Edge
+        working-directory: infra/terraform/cloudflare
+        env:
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+          TF_VAR_target_address: ${{ needs.cluster-deploy.outputs.ingress_ip }}
+          TF_VAR_record_type: "A"
+          TF_VAR_proxied: true
+          TF_VAR_ssl_mode: "full"
+        run: |
+          terraform init
+          terraform apply -auto-approve

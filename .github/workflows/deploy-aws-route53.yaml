@@ -1,4 +1,4 @@
-name: Manual Infrastructure & App Deployment (AWS)
+name: Manual Deployment (AWS EKS - Route53)
 
 # Manual only. Required repository configuration:
 #   Variables: AWS_REGION

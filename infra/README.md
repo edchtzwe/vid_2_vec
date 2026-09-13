@@ -50,12 +50,18 @@
 | `infra/k8s/app/kustomization.yaml` | Create / Updated | Application overlay Kustomize file wiring workloads, HPA, and Ingress. |
 | `infra/k8s/kustomization.yaml` | Create | Root Kustomize combining platform and app overlays. |
 | `.github/workflows/deploy.yaml` | Create | Unified manual `workflow_dispatch` pipeline executing combined AWS/GCP deployments. |
-| `.github/workflows/deploy-aws.yaml` | Create | Dedicated manual `workflow_dispatch` pipeline specialized for AWS infrastructure and workload deployments. |
-| `.github/workflows/deploy-gcp.yaml` | Create | Dedicated manual `workflow_dispatch` pipeline specialized for GCP infrastructure and workload deployments. |
+| `.github/workflows/deploy-aws-route53.yaml` | Created / Renamed | Dedicated recipe: AWS EKS + Route53 + ACM automated validation. |
+| `.github/workflows/deploy-aws-cloudflare.yaml` | Created | Dedicated recipe: AWS EKS + Cloudflare edge proxy (disables Route53). |
+| `.github/workflows/deploy-gcp-clouddns.yaml` | Created / Renamed | Dedicated recipe: GCP GKE + Cloud DNS managed zone. |
+| `.github/workflows/deploy-gcp-cloudflare.yaml` | Created | Dedicated recipe: GCP GKE + Cloudflare edge proxy (disables Cloud DNS). |
+| `.github/workflows/deploy-aws-ecs.yaml` | Create | Dedicated recipe: AWS ECS Fargate serverless container stack. |
 | `infra/terraform/aws-ecs/main.tf` | Create | Isolated ECS Fargate module: ECS cluster, CloudWatch log group, IAM execution/task roles, ALB target group, Service Discovery, Redis, API, and 4 worker task definitions + services. |
 | `infra/terraform/aws-ecs/variables.tf` | Create | Inputs for ECS Fargate deployment (VPC, subnets, ECR repository, image tag, domain, task sizes). |
 | `infra/terraform/aws-ecs/outputs.tf` | Create | Outputs for ECS cluster ARN, ALB DNS name, service names, and migration task definition ARN. |
-| `.github/workflows/deploy-aws-ecs.yaml` | Create | Isolated manual `workflow_dispatch` pipeline deploying to ECS Fargate without affecting EKS. |
+| `infra/terraform/cloudflare/main.tf` | Create | Cloudflare edge module: CNAME/A record with Orange Cloud proxying, SSL Full (Strict), and ACM validation support. |
+| `infra/terraform/cloudflare/variables.tf` | Create | Inputs for Cloudflare API token, domain name, explicit `record_type` (`CNAME` \| `A`), target address, and SSL mode. |
+| `infra/terraform/cloudflare/outputs.tf` | Create | Outputs for Cloudflare zone ID, API FQDN, assigned nameservers, and SSL mode. |
+| `.github/workflows/deploy-cloudflare.yaml` | Create | Isolated manual `workflow_dispatch` pipeline managing Cloudflare edge DNS and proxying without polluting cloud state. |
 
 ---
 
@@ -222,3 +228,34 @@ This repository includes an optional, isolated deployment path for **AWS ECS Far
 ### Isolation Guarantees
 - The ECS stack does not modify, depend on, or mutate any Kubernetes manifest, Crossplane controller, or EKS node group.
 - The pipeline `.github/workflows/deploy-aws-ecs.yaml` is fully decoupled from `.github/workflows/deploy-aws.yaml` and executes purely on manual workflow dispatch.
+
+---
+
+## 9. Recipe Catalog & Deployment Matrix (Pattern B)
+
+This repository functions as an open-source scaffolding blueprint. Engineers pick the single recipe matching their stack and can discard unused workflows:
+
+| Recipe Workflow | Compute Engine | Orchestrator | DNS & Edge Layer | Origin Record Type |
+| :--- | :--- | :--- | :--- | :--- |
+| `deploy-aws-route53.yaml` | AWS EC2 Node Groups | Kubernetes (EKS) | AWS Route53 + ACM | Native AWS Alias |
+| `deploy-aws-cloudflare.yaml` | AWS EC2 Node Groups | Kubernetes (EKS) | Cloudflare Edge Proxy | `CNAME` -> AWS ALB |
+| `deploy-gcp-clouddns.yaml` | GCP Compute Instances | Kubernetes (GKE) | Google Cloud DNS | Native Google A |
+| `deploy-gcp-cloudflare.yaml` | GCP Compute Instances | Kubernetes (GKE) | Cloudflare Edge Proxy | `A` -> GKE Ingress IP |
+| `deploy-aws-ecs.yaml` | AWS Fargate Serverless | AWS ECS | AWS ALB / Route53 | Native AWS Alias |
+
+### Mental Model & Routing Flows
+
+```text
+Track 1: Native Cloud DNS (Default)
+GoDaddy ──NS Delegation──▶ AWS Route53 / Google Cloud DNS ──▶ Cloud Load Balancer (ALB / GLB)
+
+Track 2: Cloudflare Edge (CDN + DDoS + WAF)
+GoDaddy ──NS Delegation──▶ Cloudflare Edge (Orange Cloud Proxy) ──▶ Origin Load Balancer
+                             ├── AWS EKS/ECS: CNAME -> ALB Hostname
+                             └── GCP GKE:     A -> Ingress IPv4
+```
+
+### Clean Separation Mechanics
+- `enable_route53` in `infra/terraform/aws/variables.tf` (default `true`): set to `false` when running `deploy-aws-cloudflare.yaml`. Skips Route53 zone creation to prevent ACM validation timeouts.
+- `enable_cloud_dns` in `infra/terraform/gcp/variables.tf` (default `true`): set to `false` when running `deploy-gcp-cloudflare.yaml`. Skips Cloud DNS zone creation.
+- `record_type` in `infra/terraform/cloudflare/variables.tf`: explicitly typed and validated (`"CNAME"` for AWS ALB, `"A"` for GCP Ingress). No string parsing or regex heuristics.

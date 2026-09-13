@@ -1,0 +1,227 @@
+name: Manual Deployment (GCP GKE - Cloud DNS)
+
+# Manual only. Required repository configuration:
+#   Variables: GCP_REGION, GCP_PROJECT_ID
+#   Secrets:   GCP_SA_KEY
+# The cluster name is read from Terraform outputs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform Action"
+        required: true
+        type: choice
+        options:
+          - apply
+          - plan
+          - destroy
+        default: "plan"
+
+concurrency:
+  group: deploy-gcp
+  cancel-in-progress: false
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 1: Terraform L1 Foundation (VPC, Cluster, OIDC, Container Registry)
+  # ───────────────────────────────────────────────────────────────────────────
+  terraform-foundation:
+    name: Phase 1 - Terraform L1 Provisioning (GCP)
+    runs-on: ubuntu-latest
+    outputs:
+      registry_url: ${{ steps.outputs.outputs.registry_url }}
+      cluster_name: ${{ steps.outputs.outputs.cluster_name }}
+      network_name: ${{ steps.outputs.outputs.network_name }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate Required Configuration
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          missing=""
+          [ -z "$GCP_SA_KEY" ] && missing="$missing GCP_SA_KEY(secret)"
+          [ -z "$GCP_PROJECT_ID" ] && missing="$missing GCP_PROJECT_ID(variable)"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required repository configuration:$missing"
+            exit 1
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Terraform Init & Run
+        working-directory: infra/terraform/gcp
+        run: |
+          terraform init
+          VAR_ARGS="-var=project_id=${{ vars.GCP_PROJECT_ID }}"
+          if [ -n "${{ vars.GCP_REGION }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=region=${{ vars.GCP_REGION }}"
+          fi
+          if [ -n "${{ vars.DOMAIN_NAME }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=domain_name=${{ vars.DOMAIN_NAME }}"
+          fi
+          if [ "${{ github.event.inputs.action }}" = "apply" ]; then
+            terraform apply -auto-approve $VAR_ARGS
+          elif [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform destroy -auto-approve $VAR_ARGS
+          else
+            terraform plan $VAR_ARGS
+          fi
+
+      - name: Capture Terraform Outputs
+        id: outputs
+        if: github.event.inputs.action == 'apply'
+        working-directory: infra/terraform/gcp
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "registry_url=$(terraform output -raw artifact_registry_repository)" >> "$GITHUB_OUTPUT"
+          echo "network_name=$(terraform output -raw network_name)" >> "$GITHUB_OUTPUT"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 2: Build & Push Container Image (prod image only)
+  # ───────────────────────────────────────────────────────────────────────────
+  build-push:
+    name: Phase 2 - Build & Push Image (GCP)
+    needs: terraform-foundation
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & Push
+        id: image
+        env:
+          REGISTRY_URL: ${{ needs.terraform-foundation.outputs.registry_url }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::12}"
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          IMAGE_REF="${REGISTRY_URL}:${IMAGE_TAG}"
+          docker build -f Dockerfile.prod -t "$IMAGE_REF" .
+          docker push "$IMAGE_REF"
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Phase 3: Cluster Deployment
+  #   kubeconfig -> Crossplane (DB) -> wait DB -> platform (Redis, migration)
+  #   -> wait migration -> app (workers, API) -> rollout
+  # Each stage waits for the previous dependency to be alive before proceeding.
+  # ───────────────────────────────────────────────────────────────────────────
+  cluster-deploy:
+    name: Phase 3 - Cluster Deployment (GCP)
+    needs: [terraform-foundation, build-push]
+    if: github.event.inputs.action == 'apply'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Phase 3.1 - Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Phase 3.1 - Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Phase 3.1 - Update kubeconfig (GKE)
+        run: |
+          gcloud container clusters get-credentials \
+            "${{ needs.terraform-foundation.outputs.cluster_name }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Phase 3.2 - Inject Configuration into Crossplane & Ingress Manifests
+        env:
+          CLUSTER_NAME: ${{ needs.terraform-foundation.outputs.cluster_name }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          NETWORK_NAME: ${{ needs.terraform-foundation.outputs.network_name }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+        run: |
+          NET="${NETWORK_NAME:-vid2vec-gcp-vpc}"
+          find infra/crossplane/gcp -type f -name "*.yaml" -exec sed -i \
+            -e "s|<GCP_PROJECT_ID>|${GCP_PROJECT_ID}|g" \
+            -e "s|<GCP_NETWORK_NAME>|${NET}|g" {} +
+
+          DOMAIN="${DOMAIN_NAME:-vid2vec.example.com}"
+          sed -i \
+            -e "s|<DOMAIN_NAME>|api.${DOMAIN}|g" \
+            -e "s|<ACM_CERTIFICATE_ARN>||g" \
+            infra/k8s/app/ingress.yaml
+
+      - name: Phase 3.3 - Apply Crossplane Providers & Managed Resources
+        run: |
+          kubectl apply -f infra/crossplane/gcp/provider-gcp.yaml
+          kubectl apply -f infra/crossplane/gcp/iam.yaml
+          kubectl apply -f infra/crossplane/gcp/cloudsql-postgres.yaml
+
+      - name: Phase 3.4 - Wait for Crossplane Providers Healthy
+        run: |
+          kubectl wait --for=condition=Healthy --timeout=600s provider.pkg.crossplane.io/provider-gcp-sql
+          kubectl wait --for=condition=Healthy --timeout=600s provider.pkg.crossplane.io/provider-gcp-cloudplatform
+
+      - name: Phase 3.5 - Wait for Database Ready
+        run: |
+          kubectl wait --for=condition=Ready --timeout=900s databaseinstance.sql.gcp.upbound.io/vid2vec-cloudsql-postgres
+          until kubectl get secret postgres-conn -o jsonpath='{.data.endpoint}' 2>/dev/null | grep -q .; do
+            sleep 5
+          done
+
+      - name: Phase 3.6 - Generate Database Connection Secret
+        run: |
+          DB_USER=$(kubectl get secret postgres-conn -o jsonpath='{.data.username}' | base64 -d)
+          DB_PASS=$(kubectl get secret postgres-conn -o jsonpath='{.data.password}' | base64 -d)
+          DB_HOST=$(kubectl get secret postgres-conn -o jsonpath='{.data.endpoint}' | base64 -d)
+          kubectl create secret generic vid2vec-db-credentials \
+            --from-literal=DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:5432/ion_discovery_proto?sslmode=require" \
+            --dry-run=client -o yaml > infra/k8s/platform/db-credentials.yaml
+
+      - name: Phase 3.7 - Setup Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/kustomize
+
+      - name: Phase 3.8 - Set Image Tag
+        env:
+          IMAGE_REF: ${{ needs.build-push.outputs.image_ref }}
+        run: |
+          (cd infra/k8s/platform && kustomize edit set image "vid2vec=${IMAGE_REF}")
+          (cd infra/k8s/app && kustomize edit set image "vid2vec=${IMAGE_REF}")
+
+      - name: Phase 3.9 - Deploy Platform & Wait for Migration
+        run: |
+          kubectl delete job vid2vec-db-migration --ignore-not-found
+          kubectl apply -k infra/k8s/platform
+          kubectl rollout status deployment/redis --timeout=300s
+          kubectl wait --for=condition=complete job/vid2vec-db-migration --timeout=900s
+
+      - name: Phase 3.10 - Deploy Application Workloads
+        run: |
+          kubectl apply -k infra/k8s/app
+          kubectl rollout status deployment/worker-uploader --timeout=300s
+          kubectl rollout status deployment/worker-state --timeout=300s
+          kubectl rollout status deployment/worker-analyzer --timeout=300s
+          kubectl rollout status deployment/worker-embedder --timeout=300s
+          kubectl rollout status deployment/vid2vec-api --timeout=300s

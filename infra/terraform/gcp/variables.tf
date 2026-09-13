@@ -86,3 +86,9 @@ variable "domain_name" {
   description = "Primary domain name for Cloud DNS (e.g. vid2vec.example.com)"
   default     = "vid2vec.example.com"
 }
+
+variable "enable_cloud_dns" {
+  type        = bool
+  description = "Enable Cloud DNS managed zone (set false if using Cloudflare)"
+  default     = true
+}

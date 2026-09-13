@@ -35,12 +35,12 @@ output "private_subnet_ids" {
 
 output "route53_zone_id" {
   description = "Route53 Hosted Zone ID"
-  value       = aws_route53_zone.primary.zone_id
+  value       = try(aws_route53_zone.primary[0].zone_id, "")
 }
 
 output "route53_name_servers" {
   description = "Route53 Name Servers to set in GoDaddy"
-  value       = aws_route53_zone.primary.name_servers
+  value       = try(aws_route53_zone.primary[0].name_servers, [])
 }
 
 output "acm_certificate_arn" {

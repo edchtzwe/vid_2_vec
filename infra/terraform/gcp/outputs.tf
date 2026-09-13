@@ -30,5 +30,5 @@ output "network_name" {
 
 output "dns_name_servers" {
   description = "Cloud DNS name servers to set in GoDaddy"
-  value       = google_dns_managed_zone.primary.name_servers
+  value       = try(google_dns_managed_zone.primary[0].name_servers, [])
 }

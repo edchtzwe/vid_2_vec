@@ -591,6 +591,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "aws_route53_zone" "primary" {
+  count         = var.enable_route53 ? 1 : 0
   name          = var.domain_name
   force_destroy = false
 
@@ -617,23 +618,24 @@ resource "aws_acm_certificate" "api" {
 }
 
 resource "aws_route53_record" "cert_validation" {
-  for_each = {
+  for_each = var.enable_route53 ? {
     for dvo in aws_acm_certificate.api.domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
     }
-  }
+  } : {}
 
   allow_overwrite = true
   name            = each.value.name
   records         = [each.value.record]
   ttl             = 60
   type            = each.value.type
-  zone_id         = aws_route53_zone.primary.zone_id
+  zone_id         = aws_route53_zone.primary[0].zone_id
 }
 
 resource "aws_acm_certificate_validation" "api" {
+  count                   = var.enable_route53 ? 1 : 0
   certificate_arn         = aws_acm_certificate.api.arn
   validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
 }

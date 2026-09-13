@@ -233,6 +233,7 @@ resource "helm_release" "metrics_server" {
 # ─────────────────────────────────────────────────────────────────────────────
 
 resource "google_dns_managed_zone" "primary" {
+  count       = var.enable_cloud_dns ? 1 : 0
   name        = replace(replace(var.domain_name, ".", "-"), "_", "-")
   dns_name    = "${var.domain_name}."
   description = "Managed DNS zone for ${var.domain_name}"

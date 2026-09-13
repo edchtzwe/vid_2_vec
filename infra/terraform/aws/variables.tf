@@ -79,3 +79,9 @@ variable "domain_name" {
   description = "Primary domain name for Route53 and ACM certificate"
   default     = "vid2vec.example.com"
 }
+
+variable "enable_route53" {
+  type        = bool
+  description = "Enable Route53 hosted zone and automated ACM DNS validation (set false if using Cloudflare)"
+  default     = true
+}
