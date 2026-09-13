@@ -16,13 +16,13 @@ import (
 )
 
 type Embedder struct {
-	repo      *repository.Repository
-	gemini    *gemini.Client
+	repo      repository.RepositoryInterface
+	gemini    gemini.GeminiInterface
 	outputDir string
 	logger    *log.Logger
 }
 
-func NewEmbedder(repo *repository.Repository, geminiClient *gemini.Client, outputDir string, logger *log.Logger) *Embedder {
+func NewEmbedder(repo repository.RepositoryInterface, geminiClient gemini.GeminiInterface, outputDir string, logger *log.Logger) *Embedder {
 	if outputDir == "" {
 		panic("outputDir is required and cannot be empty")
 	}

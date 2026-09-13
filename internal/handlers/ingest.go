@@ -3,19 +3,17 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v4"
 
-	"ingestion/internal/service"
 	"ingestion/internal/tasks"
 )
 
 type IngestHandler struct {
-	processor   *service.Processor
-	asynqClient *asynq.Client
+	processor   ProcessorInterface
+	asynqClient tasks.AsynqEnqueuer
 }
 
-func NewIngestHandler(processor *service.Processor, asynqClient *asynq.Client) *IngestHandler {
+func NewIngestHandler(processor ProcessorInterface, asynqClient tasks.AsynqEnqueuer) *IngestHandler {
 	return &IngestHandler{
 		processor:   processor,
 		asynqClient: asynqClient,

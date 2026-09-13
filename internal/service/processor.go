@@ -7,17 +7,16 @@ import (
 	"path/filepath"
 
 	"ingestion/internal/config"
-	"ingestion/internal/repository"
 )
 
 type Processor struct {
-	repo       *repository.Repository
+	repo       RepoInterface
 	sourceDir  string
 	aiProvider string
 	aiModel    string
 }
 
-func NewProcessor(repo *repository.Repository, cfg *config.Config) *Processor {
+func NewProcessor(repo RepoInterface, cfg *config.Config) *Processor {
 	return &Processor{
 		repo:       repo,
 		sourceDir:  cfg.SourceFileDir,
