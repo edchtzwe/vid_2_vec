@@ -74,3 +74,87 @@
   - `maintenance_work_mem = 256MB`: Drastically accelerates HNSW / IVFFlat vector index creation.
   - `work_mem = 64MB`: Optimizes in-memory sorting for vector distance ranking queries (`ORDER BY embedding <-> query`).
   - `max_parallel_maintenance_workers = 2`: Enables parallel workers for vector index builds.
+
+---
+
+## 4. Container Image Build & Push
+
+- `Dockerfile` is the local development image. It is intentionally left untouched.
+- `Dockerfile.prod` is the production image: a multi-stage build that compiles every `./cmd/...` binary in a Go builder stage and ships only the binaries plus CA certificates in a `debian:bookworm-slim` runtime.
+- The image reference lives in the Kustomize `images` transformer, not in the workload manifests. The pipeline overrides it at deploy time with `kustomize edit set image vid2vec=<registry>/vid2vec:<tag>`.
+- Registry is provisioned by Terraform: ECR on AWS, Artifact Registry on GCP. Both expose their repository URL as a Terraform output consumed by the pipeline.
+
+## 5. Deployment Pipeline Order (dependency-safe)
+
+`.github/workflows/deploy.yaml` is manual only (`workflow_dispatch`). The stages run in this fixed order, and each stage waits for the previous dependency before starting:
+
+1. **Phase 1** - Terraform L1 (VPC, cluster, OIDC, container registry, subnets/network).
+2. **Phase 2** - Build & push `Dockerfile.prod` to the provisioned registry.
+3. **Phase 3.1** - Configure kubeconfig (`aws eks update-kubeconfig` / `gcloud container clusters get-credentials`).
+4. **Phase 3.2** - Dynamically inject tokens into Crossplane manifests using caller identity, cluster identity, and Terraform outputs.
+5. **Phase 3.3-3.5** - Apply Crossplane, wait for Providers `Healthy`, wait for the database `Ready` and for the `postgres-conn` connection secret.
+6. **Phase 3.6** - Generate `vid2vec-db-credentials` Secret dynamically from `postgres-conn`.
+7. **Phase 3.7-3.8** - Setup Kustomize and set image tag.
+8. **Phase 3.9** - Apply the platform overlay (Redis, DB credentials, migration Job) and wait for Redis rollout and for the migration Job to complete.
+9. **Phase 3.10** - Apply the app overlay (4 workers, API) and wait for every rollout.
+
+No stage is allowed to swallow a failure: there are no `|| true` fallbacks on rollout or wait commands.
+
+## 6. Dependency Ordering (docker-compose `depends_on` equivalent)
+
+Kubernetes has no native `depends_on`, so ordering is expressed with two mechanisms: init containers inside a pod, and explicit pipeline stages.
+
+| docker-compose | Equivalent used here |
+| :--- | :--- |
+| `depends_on: [x]` (start order) | Pipeline stages: platform overlay is applied and waits complete before the app overlay is applied. |
+| `condition: service_healthy` | `initContainers` on API and workers: `wait-for-redis` (redis-cli ping) and `wait-for-postgres` (pg_isready against `DATABASE_URL`). |
+| `condition: service_completed_successfully` | Migration Job plus `kubectl wait --for=condition=complete job/vid2vec-db-migration` before the app overlay is applied. |
+| restart / health gating | `startupProbe`, `livenessProbe`, `readinessProbe` on every container. |
+
+Dependency graph:
+
+```
+registry  ->  (pipeline)  ->  image available
+crossplane DB Ready + postgres-conn secret  ->  migration Job  ->  workers + API
+redis Ready  ->  workers + API
+postgres Ready  ->  workers + API
+```
+
+## 7. Drop-in Values
+
+When deployed through `.github/workflows/deploy.yaml`, the pipeline automatically resolves and injects the markers into Crossplane and Kubernetes manifests at runtime from repository secrets, variables, and Terraform outputs.
+
+For manual out-of-band runs (`kubectl apply`), replace the placeholders below beforehand.
+
+### Repository configuration (GitHub Actions)
+
+| Name | Type | What it is |
+| :--- | :--- | :--- |
+| `AWS_REGION` | variable | AWS region, e.g. `us-east-1` |
+| `GCP_REGION` | variable | GCP region, e.g. `us-central1` |
+| `GCP_PROJECT_ID` | variable | GCP project ID (`gcloud config get-value project`) |
+| `AWS_ACCESS_KEY_ID` | secret | AWS access key with registry + EKS permissions |
+| `AWS_SECRET_ACCESS_KEY` | secret | Matching AWS secret key |
+| `GCP_SA_KEY` | secret | GCP service account JSON key |
+| `S3_MEDIA_BUCKET` | variable | Optional S3 media bucket name (defaults to `vid2vec-media-<AWS_ACCOUNT_ID>`) |
+
+### Terraform
+
+| File | Placeholder | What it must be |
+| :--- | :--- | :--- |
+| `infra/terraform/gcp/terraform.tfvars` | `project_id` | Real GCP project ID. Copy `terraform.tfvars.example` to `terraform.tfvars`. |
+| `infra/terraform/aws/terraform.tfvars` | values | Optional overrides. Copy `terraform.tfvars.example` if you need non-defaults. |
+
+### Kubernetes and Crossplane
+
+| File | Placeholder | What it must be |
+| :--- | :--- | :--- |
+| `infra/k8s/platform/db-credentials.yaml` | `REPLACE_DB_USER`, `REPLACE_DB_PASSWORD`, `REPLACE_DB_HOST` | Full DSN. Compose from the Crossplane `postgres-conn` secret: `username`, `password`, `endpoint`. |
+| `infra/k8s/platform/kustomization.yaml`, `infra/k8s/app/kustomization.yaml` | `placeholder.registry/vid2vec` | Registry image path. The pipeline overrides this; replace it for manual `kubectl apply -k`. |
+| `infra/crossplane/aws/provider-aws.yaml`, `infra/crossplane/aws/iam.yaml` | `<AWS_ACCOUNT_ID>` | 12-digit AWS account ID (`aws sts get-caller-identity --query Account --output text`). |
+| `infra/crossplane/aws/iam.yaml` | `<EKS_OIDC_ID>` | OIDC provider ID (`aws eks describe-cluster --name <cluster> --query cluster.identity.oidc.issuer --output text`). |
+| `infra/crossplane/aws/iam.yaml` | `<S3_MEDIA_BUCKET>` | Media bucket name. |
+| `infra/crossplane/aws/rds-postgres.yaml` | `<PRIVATE_SUBNET_ID_AZ_A>`, `<PRIVATE_SUBNET_ID_AZ_B>` | Two private subnet IDs in different AZs. |
+| `infra/crossplane/gcp/provider-gcp.yaml`, `infra/crossplane/gcp/iam.yaml`, `infra/crossplane/gcp/cloudsql-postgres.yaml` | `<GCP_PROJECT_ID>` | Real GCP project ID. |
+| `infra/crossplane/gcp/cloudsql-postgres.yaml` | `<GCP_NETWORK_NAME>` | VPC network name from the Terraform output. |
+| `infra/crossplane/aws/iam.yaml`, `infra/crossplane/gcp/iam.yaml` | `john@example.com`, `james@example.com`, `dave@example.com` | Real human account emails. |

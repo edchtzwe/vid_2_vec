@@ -12,7 +12,7 @@ spec:
         diskType: PD_SSD
         ipConfiguration:
           - ipv4Enabled: false
-            privateNetwork: projects/vid2vec-prod-project-id/global/networks/vid2vec-gcp-vpc
+            privateNetwork: projects/<GCP_PROJECT_ID>/global/networks/<GCP_NETWORK_NAME>
         databaseFlags:
           - name: "cloudsql.enable_pgvector"
             value: "on"

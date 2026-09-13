@@ -17,3 +17,13 @@ output "crossplane_service_account_email" {
   description = "GCP Service Account Email for Crossplane Provider-GCP"
   value       = google_service_account.crossplane_gcp.email
 }
+
+output "artifact_registry_repository" {
+  description = "Artifact Registry repository path for the application container image"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app.repository_id}"
+}
+
+output "network_name" {
+  description = "VPC Network Name"
+  value       = google_compute_network.vpc.name
+}

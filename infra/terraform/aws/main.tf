@@ -318,6 +318,15 @@ resource "aws_iam_role" "crossplane_provider_aws" {
 }
 
 # Policy granting Crossplane permission to manage RDS, IAM, and Networking resources
+resource "aws_ecr_repository" "app" {
+  name                 = var.ecr_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 resource "aws_iam_role_policy" "crossplane_permissions" {
   name = "${var.cluster_name}-crossplane-policy"
   role = aws_iam_role.crossplane_provider_aws.id

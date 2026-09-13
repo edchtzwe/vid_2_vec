@@ -6,8 +6,8 @@ spec:
   forProvider:
     description: "Database Subnet Group for vid2vec RDS"
     subnetIds:
-      - subnet-placeholder-private-1
-      - subnet-placeholder-private-2
+      - <PRIVATE_SUBNET_ID_AZ_A>
+      - <PRIVATE_SUBNET_ID_AZ_B>
     region: us-east-1
   providerConfigRef:
     name: default

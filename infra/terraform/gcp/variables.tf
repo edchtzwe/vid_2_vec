@@ -1,7 +1,6 @@
 variable "project_id" {
   type        = string
-  description = "GCP Project ID (placeholder)"
-  default     = "vid2vec-prod-project-id"
+  description = "GCP project ID. Find it with: gcloud config get-value project"
 }
 
 variable "region" {
@@ -68,6 +67,12 @@ variable "crossplane_namespace" {
   type        = string
   description = "Kubernetes namespace for Crossplane"
   default     = "crossplane-system"
+}
+
+variable "artifact_registry_repository_id" {
+  type        = string
+  description = "Artifact Registry Docker repository ID for the application container image"
+  default     = "vid2vec"
 }
 
 variable "crossplane_chart_version" {

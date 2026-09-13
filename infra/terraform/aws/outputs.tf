@@ -22,3 +22,13 @@ output "crossplane_role_arn" {
   description = "IAM Role ARN for Crossplane Provider-AWS IRSA"
   value       = aws_iam_role.crossplane_provider_aws.arn
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for the application container image"
+  value       = aws_ecr_repository.app.repository_url
+}
+
+output "private_subnet_ids" {
+  description = "Private Subnet IDs"
+  value       = aws_subnet.private[*].id
+}

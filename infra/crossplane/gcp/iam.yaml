@@ -14,9 +14,9 @@ metadata:
   name: vid2vec-worker-storage-access
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/storage.objectAdmin
-    member: "serviceAccount:vid2vec-worker-app-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-worker-app-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 ---
@@ -29,7 +29,7 @@ spec:
     serviceAccountIdSelector:
       matchControllerRef: true
     role: roles/iam.workloadIdentityUser
-    member: "serviceAccount:vid2vec-prod-project-id.svc.id.goog[default/vid2vec-worker-sa]"
+    member: "serviceAccount:<GCP_PROJECT_ID>.svc.id.goog[default/vid2vec-worker-sa]"
   providerConfigRef:
     name: default
 
@@ -53,9 +53,9 @@ metadata:
   name: vid2vec-admin-owner-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/owner
-    member: "serviceAccount:vid2vec-admin-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-admin-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 
@@ -79,9 +79,9 @@ metadata:
   name: vid2vec-worker-container-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/container.developer
-    member: "serviceAccount:vid2vec-worker-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-worker-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 ---
@@ -91,9 +91,9 @@ metadata:
   name: vid2vec-worker-cloudsql-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/cloudsql.client
-    member: "serviceAccount:vid2vec-worker-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-worker-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 ---
@@ -103,9 +103,9 @@ metadata:
   name: vid2vec-worker-storage-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/storage.objectAdmin
-    member: "serviceAccount:vid2vec-worker-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-worker-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 
@@ -129,9 +129,9 @@ metadata:
   name: vid2vec-readonly-viewer-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/viewer
-    member: "serviceAccount:vid2vec-readonly-sa@vid2vec-prod-project-id.iam.gserviceaccount.com"
+    member: "serviceAccount:vid2vec-readonly-sa@<GCP_PROJECT_ID>.iam.gserviceaccount.com"
   providerConfigRef:
     name: default
 
@@ -145,7 +145,7 @@ metadata:
   name: john-owner-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/owner
     member: "user:john@example.com"
   providerConfigRef:
@@ -161,7 +161,7 @@ metadata:
   name: james-container-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/container.developer
     member: "user:james@example.com"
   providerConfigRef:
@@ -173,7 +173,7 @@ metadata:
   name: james-cloudsql-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/cloudsql.client
     member: "user:james@example.com"
   providerConfigRef:
@@ -185,7 +185,7 @@ metadata:
   name: james-storage-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/storage.objectAdmin
     member: "user:james@example.com"
   providerConfigRef:
@@ -197,7 +197,7 @@ metadata:
   name: james-logging-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/logging.viewer
     member: "user:james@example.com"
   providerConfigRef:
@@ -213,7 +213,7 @@ metadata:
   name: dave-viewer-binding
 spec:
   forProvider:
-    project: vid2vec-prod-project-id
+    project: <GCP_PROJECT_ID>
     role: roles/viewer
     member: "user:dave@example.com"
   providerConfigRef:

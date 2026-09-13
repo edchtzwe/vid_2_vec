@@ -185,6 +185,13 @@ provider "helm" {
   }
 }
 
+resource "google_artifact_registry_repository" "app" {
+  location      = var.region
+  repository_id = var.artifact_registry_repository_id
+  description   = "Container image repository for the application"
+  format        = "DOCKER"
+}
+
 resource "helm_release" "crossplane" {
   name             = "crossplane"
   repository       = "https://charts.crossplane.io/stable"

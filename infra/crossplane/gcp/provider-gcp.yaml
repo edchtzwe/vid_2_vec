@@ -3,7 +3,7 @@ kind: ControllerConfig
 metadata:
   name: gcp-config
   annotations:
-    iam.gke.io/gcp-service-account: crossplane-provider-gcp@vid2vec-prod-project-id.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: crossplane-provider-gcp@<GCP_PROJECT_ID>.iam.gserviceaccount.com
 spec:
   podSecurityContext:
     fsGroup: 2000
@@ -31,6 +31,6 @@ kind: ProviderConfig
 metadata:
   name: default
 spec:
-  projectID: vid2vec-prod-project-id
+  projectID: <GCP_PROJECT_ID>
   credentials:
     source: InjectedIdentity

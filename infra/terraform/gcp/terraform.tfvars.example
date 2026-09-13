@@ -1,0 +1,18 @@
+project_id   = "REPLACE_GCP_PROJECT_ID"
+region       = "us-central1"
+cluster_name = "vid2vec-gke-cluster"
+
+zones = ["us-central1-a", "us-central1-b"]
+
+network_name = "vid2vec-gcp-vpc"
+subnet_cidr  = "10.10.0.0/20"
+pods_cidr    = "10.20.0.0/16"
+services_cidr = "10.30.0.0/20"
+
+machine_type   = "e2-standard-2"
+min_node_count = 1
+max_node_count = 3
+
+artifact_registry_repository_id = "vid2vec"
+crossplane_namespace            = "crossplane-system"
+crossplane_chart_version        = "1.16.0"

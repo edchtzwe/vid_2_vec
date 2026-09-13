@@ -52,6 +52,12 @@ variable "crossplane_namespace" {
   default     = "crossplane-system"
 }
 
+variable "ecr_repository_name" {
+  type        = string
+  description = "ECR repository name for the application container image"
+  default     = "vid2vec"
+}
+
 variable "crossplane_chart_version" {
   type        = string
   description = "Helm chart version for Crossplane"

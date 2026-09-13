@@ -1,26 +1,3 @@
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: vid2vec-db-migration
-spec:
-  template:
-    spec:
-      containers:
-        - name: db-migrate
-          image: vid2vec:latest
-          command: ["./bin/migrate"]
-          env:
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
-            - name: DB_SCHEMA
-              value: "discovery_showcase"
-      restartPolicy: OnFailure
-  backoffLimit: 3
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +23,25 @@ spec:
                     operator: In
                     values: ["vid2vec-api"]
               topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
       containers:
         - name: api
           image: vid2vec:latest
@@ -63,9 +59,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
             - name: DB_SCHEMA
               value: "discovery_showcase"
           resources:

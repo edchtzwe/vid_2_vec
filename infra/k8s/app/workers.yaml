@@ -26,6 +26,25 @@ spec:
                     operator: In
                     values: ["uploader"]
               topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
       containers:
         - name: worker-uploader
           image: vid2vec:latest
@@ -36,9 +55,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
             - name: DB_SCHEMA
               value: "discovery_showcase"
           resources:
@@ -88,6 +106,25 @@ spec:
                     operator: In
                     values: ["state"]
               topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
       containers:
         - name: worker-state
           image: vid2vec:latest
@@ -98,9 +135,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
             - name: DB_SCHEMA
               value: "discovery_showcase"
           resources:
@@ -150,6 +186,25 @@ spec:
                     operator: In
                     values: ["analyzer"]
               topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
       containers:
         - name: worker-analyzer
           image: vid2vec:latest
@@ -160,9 +215,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
             - name: DB_SCHEMA
               value: "discovery_showcase"
           resources:
@@ -212,6 +266,25 @@ spec:
                     operator: In
                     values: ["embedder"]
               topologyKey: "kubernetes.io/hostname"
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - until redis-cli -h redis-service -p 6379 ping 2>/dev/null | grep -q PONG; do sleep 2; done
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
+          command:
+            - sh
+            - -c
+            - until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do sleep 3; done
       containers:
         - name: worker-embedder
           image: vid2vec:latest
@@ -222,9 +295,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgres-conn
-                  key: endpoint
-                  optional: true
+                  name: vid2vec-db-credentials
+                  key: DATABASE_URL
             - name: DB_SCHEMA
               value: "discovery_showcase"
           resources:
