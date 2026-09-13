@@ -54,5 +54,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Download Dependencies
+        run: go mod tidy && go mod download
+
       - name: Run Tests
         run: go test ./... -v -count=1

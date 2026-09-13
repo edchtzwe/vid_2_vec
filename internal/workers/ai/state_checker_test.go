@@ -10,7 +10,6 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"ingestion/internal/gemini"
 	"ingestion/internal/repository"
 	"ingestion/internal/tasks"
 )
