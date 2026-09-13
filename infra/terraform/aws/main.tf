@@ -276,6 +276,26 @@ resource "helm_release" "crossplane" {
   depends_on = [aws_eks_node_group.main]
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Metrics Server (Required for HPA CPU/Memory metrics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "helm_release" "metrics_server" {
+  name             = "metrics-server"
+  repository       = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart            = "metrics-server"
+  version          = "3.12.1"
+  namespace        = "kube-system"
+  create_namespace = false
+
+  set {
+    name  = "args"
+    value = "{--kubelet-insecure-tls}"
+  }
+
+  depends_on = [helm_release.crossplane]
+}
+
 resource "aws_iam_role" "crossplane_provider_aws" {
   name = "${var.cluster_name}-crossplane-provider-aws"
 

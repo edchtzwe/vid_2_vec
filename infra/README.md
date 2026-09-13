@@ -64,6 +64,12 @@
     - **John** → admin: Full infrastructure and platform admin.
     - **James** → worker: Services read/write, no IAM admin.
     - **Dave** → readonly: View and inspect only, zero changes.
+- **Scaling Architecture (HPA, No KEDA)**:
+  - **Workers & API**: CPU-based HPA (target 70% utilization). Min 2 replicas, max 4. Scale-down stabilization window of 300s prevents flapping.
+  - **Redis**: No HPA. Redis is a singleton queue bus. Scaling Redis horizontally splits the queue — workers on different instances can't see each other's jobs. Redis breaks on RAM (queue depth), not CPU. If Redis backs up, it means workers aren't draining fast enough or something is broken. The fix is to increase the drain rate (more worker pods via HPA), not build a bigger dam (more Redis instances).
+  - **Why not KEDA**: KEDA watches queue depth and exposes it as a scaling metric. But our workers are CPU-bound (video analysis, embedding generation). A growing queue is a symptom of workers hitting CPU saturation — CPU-based HPA already handles that. KEDA adds infrastructure complexity without value when the bottleneck is compute, not queue length. If queue depth becomes the bottleneck in the future (e.g., workers are I/O-bound waiting on external APIs), KEDA can be added as a layer on top of HPA.
+  - **Scaling chain**: `CPU spike → HPA adds worker pods → if nodes full, Cluster Autoscaler adds nodes → workers drain queue → CPU drops → HPA scales down → Cluster Autoscaler removes nodes`.
+  - **Metrics Server**: Installed via Terraform Helm release in `kube-system` namespace. Required for HPA to read CPU/memory metrics from kubelet.
 - **Database Engine Optimization (pgvector)**:
   - `maintenance_work_mem = 256MB`: Drastically accelerates HNSW / IVFFlat vector index creation.
   - `work_mem = 64MB`: Optimizes in-memory sorting for vector distance ranking queries (`ORDER BY embedding <-> query`).

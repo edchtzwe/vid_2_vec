@@ -5,3 +5,4 @@ resources:
   - redis.yaml
   - workers.yaml
   - api.yaml
+  - hpa.yaml

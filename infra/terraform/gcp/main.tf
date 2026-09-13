@@ -200,3 +200,23 @@ resource "helm_release" "crossplane" {
 
   depends_on = [google_container_node_pool.primary_nodes]
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Metrics Server (Required for HPA CPU/Memory metrics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "helm_release" "metrics_server" {
+  name             = "metrics-server"
+  repository       = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart            = "metrics-server"
+  version          = "3.12.1"
+  namespace        = "kube-system"
+  create_namespace = false
+
+  set {
+    name  = "args"
+    value = "{--kubelet-insecure-tls}"
+  }
+
+  depends_on = [helm_release.crossplane]
+}
