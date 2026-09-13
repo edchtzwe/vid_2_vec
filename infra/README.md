@@ -50,7 +50,11 @@
 ## 3. High Availability & Worker Architecture
 
 - **Failover**: Both AWS EKS and GCP GKE node groups are provisioned with a minimum count of 2 nodes spread across multiple Availability Zones / regions.
-- **Worker Queues**: The 4 distinct background workers (`worker-uploader`, `worker-state`, `worker-analyzer`, `worker-embedder`) operate as separate Kubernetes Deployments connecting to a shared Redis instance via Asynq. Pod anti-affinity and topology spread constraints ensure distribution across separate physical nodes.
+- **Worker Queues**: The 4 distinct background workers (`worker-uploader`, `worker-state`, `worker-analyzer`, `worker-embedder`) operate as separate Kubernetes Deployments (2 replicas each, 8 pods total) connecting to a shared Redis instance via Asynq. Hard `requiredDuringSchedulingIgnoredDuringExecution` anti-affinity ensures exactly 1 replica of each worker per node.
+- **Health Probes**:
+  - **API** (`/health-check`): `startupProbe` (5s delay, 10 retries), `livenessProbe` (15s interval, 3 failures), `readinessProbe` (10s interval, 3 failures). Removes from Service endpoint on failure.
+  - **Workers** (exec `kill -0 1`): `startupProbe` (5s delay, 10 retries), `livenessProbe` (15s interval, 3 failures). No `readinessProbe` — workers consume from Redis queues, not K8s Services.
+  - **Redis** (exec `redis-cli ping`): All three probes. Removes from Service during RDB/AOF load.
 - **IAM Structure (Crossplane)**:
   - **Machine Roles** (for workloads & service accounts):
     1. **admin**: Full infrastructure authority — automation pipelines, break-glass workloads.
