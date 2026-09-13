@@ -16,14 +16,14 @@ import (
 )
 
 type Analyzer struct {
-	repo        *repository.Repository
-	gemini      *gemini.Client
-	asynqClient *asynq.Client
+	repo        repository.RepositoryInterface
+	gemini      gemini.GeminiInterface
+	asynqClient tasks.AsynqEnqueuer
 	outputDir   string
 	logger      *log.Logger
 }
 
-func NewAnalyzer(repo *repository.Repository, geminiClient *gemini.Client, asynqClient *asynq.Client, outputDir string, logger *log.Logger) *Analyzer {
+func NewAnalyzer(repo repository.RepositoryInterface, geminiClient gemini.GeminiInterface, asynqClient tasks.AsynqEnqueuer, outputDir string, logger *log.Logger) *Analyzer {
 	if outputDir == "" {
 		outputDir = "./manifests"
 	}
