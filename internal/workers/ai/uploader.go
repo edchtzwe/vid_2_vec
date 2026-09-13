@@ -16,14 +16,14 @@ import (
 )
 
 type Uploader struct {
-	repo        *repository.Repository
-	gemini      *gemini.Client
-	asynqClient *asynq.Client
+	repo        repository.RepositoryInterface
+	gemini      gemini.GeminiInterface
+	asynqClient tasks.AsynqEnqueuer
 	sourceDir   string
 	logger      *log.Logger
 }
 
-func NewUploader(repo *repository.Repository, geminiClient *gemini.Client, asynqClient *asynq.Client, sourceDir string, logger *log.Logger) *Uploader {
+func NewUploader(repo repository.RepositoryInterface, geminiClient gemini.GeminiInterface, asynqClient tasks.AsynqEnqueuer, sourceDir string, logger *log.Logger) *Uploader {
 	return &Uploader{
 		repo:        repo,
 		gemini:      geminiClient,

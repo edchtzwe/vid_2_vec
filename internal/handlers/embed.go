@@ -6,15 +6,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
-
-	aiworkers "ingestion/internal/workers/ai"
 )
 
 type EmbedHandler struct {
-	embedder *aiworkers.Embedder
+	embedder EmbedderInterface
 }
 
-func NewEmbedHandler(embedder *aiworkers.Embedder) *EmbedHandler {
+func NewEmbedHandler(embedder EmbedderInterface) *EmbedHandler {
 	return &EmbedHandler{embedder: embedder}
 }
 

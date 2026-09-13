@@ -11,10 +11,10 @@ import (
 )
 
 type JobHandler struct {
-	repo *repository.Repository
+	repo repository.RepositoryInterface
 }
 
-func NewJobHandler(repo *repository.Repository) *JobHandler {
+func NewJobHandler(repo repository.RepositoryInterface) *JobHandler {
 	return &JobHandler{repo: repo}
 }
 
