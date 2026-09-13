@@ -80,3 +80,9 @@ variable "crossplane_chart_version" {
   description = "Helm chart version for Crossplane"
   default     = "1.16.0"
 }
+
+variable "domain_name" {
+  type        = string
+  description = "Primary domain name for Cloud DNS (e.g. vid2vec.example.com)"
+  default     = "vid2vec.example.com"
+}

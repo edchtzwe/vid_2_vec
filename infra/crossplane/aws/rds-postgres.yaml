@@ -43,6 +43,7 @@ spec:
   forProvider:
     allocatedStorage: 20
     autoMinorVersionUpgrade: true
+    backupRetentionPeriod: 7
     dbName: ion_discovery_proto
     dbSubnetGroupNameRef:
       name: vid2vec-db-subnet-group
@@ -50,10 +51,11 @@ spec:
       name: vid2vec-pgvector-params
     engine: postgres
     engineVersion: "16.1"
-    instanceClass: db.t4g.micro
+    finalSnapshotIdentifier: vid2vec-postgres-db-final-snapshot
+    instanceClass: db.t4g.small
     publiclyAccessible: false
     region: us-east-1
-    skipFinalSnapshot: true
+    skipFinalSnapshot: false
     username: iamatomic
     passwordSecretRef:
       name: rds-postgres-master-password

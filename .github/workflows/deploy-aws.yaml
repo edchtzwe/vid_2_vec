@@ -34,6 +34,7 @@ jobs:
       cluster_name: ${{ steps.outputs.outputs.cluster_name }}
       subnet_a: ${{ steps.outputs.outputs.subnet_a }}
       subnet_b: ${{ steps.outputs.outputs.subnet_b }}
+      acm_certificate_arn: ${{ steps.outputs.outputs.acm_certificate_arn }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -73,6 +74,9 @@ jobs:
           if [ -n "${{ vars.AWS_REGION }}" ]; then
             VAR_ARGS="-var=aws_region=${{ vars.AWS_REGION }}"
           fi
+          if [ -n "${{ vars.DOMAIN_NAME }}" ]; then
+            VAR_ARGS="$VAR_ARGS -var=domain_name=${{ vars.DOMAIN_NAME }}"
+          fi
           if [ "${{ github.event.inputs.action }}" = "apply" ]; then
             terraform apply -auto-approve $VAR_ARGS
           elif [ "${{ github.event.inputs.action }}" = "destroy" ]; then
@@ -90,6 +94,7 @@ jobs:
           echo "registry_url=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
           echo "subnet_a=$(terraform output -json private_subnet_ids | jq -r '.[0]')" >> "$GITHUB_OUTPUT"
           echo "subnet_b=$(terraform output -json private_subnet_ids | jq -r '.[1]')" >> "$GITHUB_OUTPUT"
+          echo "acm_certificate_arn=$(terraform output -raw acm_certificate_arn 2>/dev/null || echo '')" >> "$GITHUB_OUTPUT"
 
   # ───────────────────────────────────────────────────────────────────────────
   # Phase 2: Build & Push Container Image (prod image only)
@@ -154,13 +159,15 @@ jobs:
             --name "${{ needs.terraform-foundation.outputs.cluster_name }}" \
             --region "${{ vars.AWS_REGION }}"
 
-      - name: Phase 3.2 - Inject Configuration into Crossplane Manifests
+      - name: Phase 3.2 - Inject Configuration into Crossplane & Ingress Manifests
         env:
           CLUSTER_NAME: ${{ needs.terraform-foundation.outputs.cluster_name }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           S3_MEDIA_BUCKET: ${{ vars.S3_MEDIA_BUCKET }}
           SUBNET_A: ${{ needs.terraform-foundation.outputs.subnet_a }}
           SUBNET_B: ${{ needs.terraform-foundation.outputs.subnet_b }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          ACM_CERTIFICATE_ARN: ${{ needs.terraform-foundation.outputs.acm_certificate_arn }}
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           OIDC_ISSUER=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" --query cluster.identity.oidc.issuer --output text)
@@ -175,6 +182,13 @@ jobs:
             -e "s|<S3_MEDIA_BUCKET>|${BUCKET}|g" \
             -e "s|<PRIVATE_SUBNET_ID_AZ_A>|${SUBNET_A}|g" \
             -e "s|<PRIVATE_SUBNET_ID_AZ_B>|${SUBNET_B}|g" {} +
+
+          DOMAIN="${DOMAIN_NAME:-vid2vec.example.com}"
+          ACM_ARN="${ACM_CERTIFICATE_ARN}"
+          sed -i \
+            -e "s|<DOMAIN_NAME>|api.${DOMAIN}|g" \
+            -e "s|<ACM_CERTIFICATE_ARN>|${ACM_ARN}|g" \
+            infra/k8s/app/ingress.yaml
 
       - name: Phase 3.3 - Apply Crossplane Providers & Managed Resources
         run: |

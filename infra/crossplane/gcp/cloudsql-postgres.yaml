@@ -7,7 +7,7 @@ spec:
     databaseVersion: POSTGRES_16
     region: us-central1
     settings:
-      - tier: db-f1-micro
+      - tier: db-custom-1-3840
         diskSize: 20
         diskType: PD_SSD
         ipConfiguration:
@@ -24,6 +24,7 @@ spec:
             value: "2"
         backupConfiguration:
           - enabled: true
+            pointInTimeRecoveryEnabled: true
             startTime: "04:00"
   writeConnectionSecretToRef:
     name: postgres-conn

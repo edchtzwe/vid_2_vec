@@ -5,6 +5,7 @@ resources:
   - api.yaml
   - workers.yaml
   - hpa.yaml
+  - ingress.yaml
 
 images:
   - name: vid2vec

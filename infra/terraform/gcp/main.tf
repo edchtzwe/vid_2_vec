@@ -227,3 +227,15 @@ resource "helm_release" "metrics_server" {
 
   depends_on = [helm_release.crossplane]
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud DNS Managed Zone
+# ─────────────────────────────────────────────────────────────────────────────
+
+resource "google_dns_managed_zone" "primary" {
+  name        = replace(replace(var.domain_name, ".", "-"), "_", "-")
+  dns_name    = "${var.domain_name}."
+  description = "Managed DNS zone for ${var.domain_name}"
+
+  visibility = "public"
+}

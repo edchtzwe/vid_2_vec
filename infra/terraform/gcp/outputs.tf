@@ -27,3 +27,8 @@ output "network_name" {
   description = "VPC Network Name"
   value       = google_compute_network.vpc.name
 }
+
+output "dns_name_servers" {
+  description = "Cloud DNS name servers to set in GoDaddy"
+  value       = google_dns_managed_zone.primary.name_servers
+}

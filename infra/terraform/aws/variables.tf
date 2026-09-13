@@ -73,3 +73,9 @@ variable "tags" {
     ManagedBy   = "Terraform"
   }
 }
+
+variable "domain_name" {
+  type        = string
+  description = "Primary domain name for Route53 and ACM certificate"
+  default     = "vid2vec.example.com"
+}
